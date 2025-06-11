@@ -1,0 +1,121 @@
+# Hyperspectral Analysis Project - Git Ignore File
+# Only track Python source files, ignore data and output files
+
+# Image data files
+*.czi
+*.tif
+*.tiff
+*.png
+*.jpg
+*.jpeg
+*.bmp
+*.gif
+
+# ROI data files
+*.zip
+*.roi
+manual_rois/
+Rois/
+
+# Output data files
+*.csv
+*.xlsx
+*.json
+*.npy
+*.npz
+
+# Output directories
+roi_histograms/
+output/
+results/
+figures/
+
+# Python cache and compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+*.egg
+.eggs/
+build/
+dist/
+
+# Jupyter Notebook files
+*.ipynb
+.ipynb_checkpoints/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Virtual environments
+venv/
+env/
+.env
+.venv
+
+# Log files
+*.log
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Backup files
+*_backup.py
+*_old.py
+*.bak
+
+# System files
+Thumbs.db
+.DS_Store
+
+# Specific to this project - confocal images directory
+Confocal_images/
+
+# Analysis output files (keeping only source code)
+filtered_channel_projections_*.png
+manual_roi_labeled_mask*.png
+roi_clusters_detailed*.png
+roi_intensities_channel_*.png
+cluster_spectral_signatures*.png
+spectral_signatures_all_rois*.png
+channel_projections*.png
+*_analysis.png
+*_histogram*.png
+*_correlation*.png
+*_similarity*.png
+*_pca*.png
+*_clustering*.png
+
+# Statistical analysis outputs
+*_statistics.csv
+*_report.txt
+*_analysis.csv
+correlation_analysis.png
+hierarchical_clustering.png
+pca_analysis.png
+roi_similarity_matrix.png
+optimal_clusters_analysis.png
+enhanced_cluster_analysis.png
+endmember_spectra.png
+abundance_maps.png
+reconstruction_error.png
+roi_abundances.png
+
+# Unmixing analysis outputs
+endmember_spectra.csv
+abundance_maps.npy
+preprocessing_parameters.csv
+roi_unmixing_analysis.csv
+statistical_analysis_report.txt
+roi_basic_statistics.csv
+roi_distribution_analysis.csv
