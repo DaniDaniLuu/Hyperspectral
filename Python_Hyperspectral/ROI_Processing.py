@@ -16,7 +16,7 @@ from roifile import roiread
 
 # Constants
 CZI_PATH = "241121_10h40min_bra.h2b.mAp_twist.RFP_crbn.h2b.GFP_meis.kaede.czi"
-FIJI_ROI_ZIP_PATH = "Rois.zip"
+FIJI_ROI_ZIP_PATH = "manual_rois.zip"
 APPLY_SMOOTHING = False
 
 
@@ -499,8 +499,8 @@ def visualize_roi_mask(labeled_mask, segmentation_input, spectral_df, num_labels
     ax_legend = plt.subplot(1, 3, 3)
     
     # Reference image
-    ax_ref.imshow(segmentation_input[10], cmap='gray', vmin=vmin_val, vmax=vmax_val)
-    ax_ref.set_title('Reference Image Channel 11 w/ Max Z Projection')
+    ax_ref.imshow(segmentation_input[13], cmap='gray', vmin=vmin_val, vmax=vmax_val)
+    ax_ref.set_title('Reference Image Channel 14 w/ Max Z Projection')
     ax_ref.axis('off')
     
     # Create consistent colormap
@@ -838,13 +838,13 @@ def plot_cluster_spectra(spectral_df, num_clusters, num_channels, cmap_clusters)
         
         color = cmap_clusters(cluster_id)
         ax.plot(channel_numbers, cluster_means, 
-            marker='o', linewidth=3, markersize=6,
-            label=f'Cluster {cluster_id} (n={len(cluster_data)})', 
-            color=color)
+               marker='o', linewidth=3, markersize=6,
+               label=f'Cluster {cluster_id} (n={len(cluster_data)})', 
+               color=color)
         ax.fill_between(channel_numbers, 
-                    cluster_means - cluster_stds,
-                    cluster_means + cluster_stds,
-                    alpha=0.2, color=color)
+                       cluster_means - cluster_stds,
+                       cluster_means + cluster_stds,
+                       alpha=0.2, color=color)
     
     ax.set_title('Mean Spectral Signatures by Cluster')
     ax.set_xlabel('Channel Number')
