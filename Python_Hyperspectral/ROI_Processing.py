@@ -752,6 +752,242 @@ Intensity groups (Low/Med/High):
     return results
 
 
+def create_cluster_overlay_visualization(spectral_df, filtered_labeled_mask, segmentation_input, statistical_results):
+    """
+    Create a comprehensive visualization showing hierarchical clusters overlaid on the original image.
+    """
+    print("\n🎨 Creating cluster overlay visualization...")
+    
+    if 'hierarchical_labels' not in statistical_results:
+        print("❌ No hierarchical cluster labels found in statistical results")
+        return
+    
+    # Get cluster information
+    cluster_labels = statistical_results['hierarchical_labels']
+    num_clusters = len(np.unique(cluster_labels))
+    
+    # Create cluster colormap
+    cluster_colors = plt.cm.Set1(np.linspace(0, 1, num_clusters))
+    
+    # Reference image (use channel with good contrast)
+    ref_channel = 10  # Middle channel often has good contrast
+    ref_img = segmentation_input[ref_channel]
+    
+    # Create figure with multiple views
+    fig = plt.figure(figsize=(20, 12))
+    gs = fig.add_gridspec(2, 3, hspace=0.3, wspace=0.3)
+    
+    # 1. Original reference image
+    ax1 = fig.add_subplot(gs[0, 0])
+    im1 = ax1.imshow(ref_img, cmap='gray')
+    ax1.set_title(f'Original Image\n(Channel {ref_channel + 1})', fontsize=12, fontweight='bold')
+    ax1.axis('off')
+    plt.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04)
+    
+    # 2. All ROIs on original image
+    ax2 = fig.add_subplot(gs[0, 1])
+    ax2.imshow(ref_img, cmap='gray', alpha=0.7)
+    
+    # Overlay all ROIs with their individual colors
+    roi_overlay = np.zeros_like(filtered_labeled_mask, dtype=float)
+    
+    for idx, (_, roi_row) in enumerate(spectral_df.iterrows()):
+        roi_id = int(roi_row['roi_id'])
+        roi_overlay[filtered_labeled_mask == roi_id] = idx + 1
+    
+    im2 = ax2.imshow(roi_overlay, cmap=plt.cm.get_cmap('tab20', len(spectral_df)), 
+                     alpha=0.6, vmin=0, vmax=len(spectral_df))
+    ax2.set_title(f'All ROIs Overlay\n({len(spectral_df)} ROIs)', fontsize=12, fontweight='bold')
+    ax2.axis('off')
+    
+    # 3. Cluster overlay on original image
+    ax3 = fig.add_subplot(gs[0, 2])
+    ax3.imshow(ref_img, cmap='gray', alpha=0.7)
+    
+    # Create cluster overlay mask
+    cluster_overlay = np.zeros_like(filtered_labeled_mask, dtype=float)
+    
+    for idx, (_, roi_row) in enumerate(spectral_df.iterrows()):
+        roi_id = int(roi_row['roi_id'])
+        cluster_id = cluster_labels[idx]
+        cluster_overlay[filtered_labeled_mask == roi_id] = cluster_id + 1
+    
+    im3 = ax3.imshow(cluster_overlay, cmap=plt.cm.Set1, alpha=0.8, 
+                     vmin=0, vmax=num_clusters, interpolation='nearest')
+    ax3.set_title(f'Hierarchical Clusters\n({num_clusters} clusters)', fontsize=12, fontweight='bold')
+    ax3.axis('off')
+    
+    # Add cluster legend
+    from matplotlib.patches import Patch
+    legend_elements = [Patch(facecolor=cluster_colors[i], label=f'Cluster {i+1}') 
+                      for i in range(num_clusters)]
+    ax3.legend(handles=legend_elements, loc='upper left', bbox_to_anchor=(1.05, 1))
+    
+    # 4. Cluster boundaries only
+    ax4 = fig.add_subplot(gs[1, 0])
+    ax4.imshow(ref_img, cmap='gray')
+    
+    # Draw cluster boundaries
+    from skimage.measure import find_contours
+    
+    for cluster_id in range(num_clusters):
+        cluster_mask = cluster_overlay == (cluster_id + 1)
+        if np.any(cluster_mask):
+            # Find contours for this cluster
+            contours = find_contours(cluster_mask.astype(float), 0.5)
+            for contour in contours:
+                ax4.plot(contour[:, 1], contour[:, 0], linewidth=3, 
+                        color=cluster_colors[cluster_id], alpha=0.9)
+    
+    ax4.set_title('Cluster Boundaries Only', fontsize=12, fontweight='bold')
+    ax4.axis('off')
+    
+    # 5. Cluster statistics text
+    ax5 = fig.add_subplot(gs[1, 1:])
+    ax5.axis('off')
+    
+    # Add cluster statistics
+    stats_text = "CLUSTER ASSIGNMENTS:\n\n"
+    for cluster_id in range(num_clusters):
+        cluster_roi_indices = np.where(cluster_labels == cluster_id)[0]
+        cluster_rois = [int(spectral_df.iloc[idx]['roi_id']) for idx in cluster_roi_indices]
+        
+        # Calculate cluster statistics
+        spectral_cols = [f'Channel_{i+1}_Mean' for i in range(15)]
+        cluster_data = spectral_df.iloc[cluster_roi_indices][spectral_cols]
+        mean_intensity = cluster_data.values.mean()
+        
+        stats_text += f"Cluster {cluster_id + 1}: {len(cluster_rois)} ROIs\n"
+        stats_text += f"  ROIs: {sorted(cluster_rois)}\n"
+        stats_text += f"  Mean Intensity: {mean_intensity:.2f}\n\n"
+    
+    ax5.text(0.1, 0.9, stats_text, transform=ax5.transAxes, fontsize=10,
+             verticalalignment='top', fontfamily='monospace',
+             bbox=dict(boxstyle='round,pad=0.5', facecolor='lightblue', alpha=0.8))
+    
+    # Add overall title
+    fig.suptitle('Hierarchical Clustering Spatial Analysis\n' + 
+                f'53 ROIs grouped into {num_clusters} clusters based on spectral similarity',
+                fontsize=16, fontweight='bold')
+    
+    plt.savefig('cluster_overlay_comprehensive.png', dpi=150, bbox_inches='tight')
+    plt.close()
+    
+    print("✅ Saved cluster overlay visualization to 'cluster_overlay_comprehensive.png'")
+    
+    # Create individual cluster visualizations
+    create_individual_cluster_views(spectral_df, filtered_labeled_mask, segmentation_input, 
+                                   cluster_labels, num_clusters, ref_img)
+
+def create_individual_cluster_views(spectral_df, filtered_labeled_mask, segmentation_input, 
+                                   cluster_labels, num_clusters, ref_img):
+    """Create separate visualization for each cluster."""
+    
+    cluster_colors = plt.cm.Set1(np.linspace(0, 1, num_clusters))
+    
+    # Create individual cluster panels
+    fig, axes = plt.subplots(1, num_clusters, figsize=(5*num_clusters, 5))
+    if num_clusters == 1:
+        axes = [axes]
+    
+    for cluster_id in range(num_clusters):
+        ax = axes[cluster_id]
+        
+        # Create cluster overlay mask
+        cluster_overlay = np.zeros_like(filtered_labeled_mask, dtype=float)
+        cluster_roi_indices = np.where(cluster_labels == cluster_id)[0]
+        
+        for roi_idx in cluster_roi_indices:
+            roi_row = spectral_df.iloc[roi_idx]
+            roi_id = int(roi_row['roi_id'])
+            cluster_overlay[filtered_labeled_mask == roi_id] = 1
+        
+        # Show reference image with cluster overlay
+        ax.imshow(ref_img, cmap='gray', alpha=0.7)
+        ax.imshow(cluster_overlay, cmap='Reds', alpha=0.8, vmin=0, vmax=1)
+        
+        # Get ROIs in this cluster
+        cluster_rois = [int(spectral_df.iloc[idx]['roi_id']) for idx in cluster_roi_indices]
+        
+        ax.set_title(f'Cluster {cluster_id + 1}\n{len(cluster_rois)} ROIs\n{cluster_rois[:5]}' + 
+                    (f'\n+ {len(cluster_rois)-5} more' if len(cluster_rois) > 5 else ''),
+                    fontsize=10, fontweight='bold')
+        ax.axis('off')
+        
+        # Add ROI numbers for this cluster
+        for roi_idx in cluster_roi_indices:
+            roi_row = spectral_df.iloc[roi_idx]
+            roi_id = int(roi_row['roi_id'])
+            if 'centroid_col' in roi_row and 'centroid_row' in roi_row:
+                x, y = roi_row['centroid_col'], roi_row['centroid_row']
+                ax.text(x, y, str(roi_id), ha='center', va='center', 
+                       fontsize=8, fontweight='bold', color='white',
+                       bbox=dict(boxstyle='circle,pad=0.2', facecolor='black', alpha=0.8))
+    
+    fig.suptitle('Individual Clusters with ROI Numbers', fontsize=14, fontweight='bold')
+    fig.tight_layout()
+    fig.savefig('individual_clusters_detailed.png', dpi=150, bbox_inches='tight')
+    plt.close()
+    
+    print("✅ Saved individual clusters to 'individual_clusters_detailed.png'")
+
+def create_cluster_summary_table(spectral_df, cluster_labels, num_clusters):
+    """Create a detailed summary table of cluster assignments."""
+    
+    print("\n📊 DETAILED CLUSTER ASSIGNMENTS:")
+    print("="*60)
+    
+    cluster_summary = []
+    
+    for cluster_id in range(num_clusters):
+        cluster_indices = np.where(cluster_labels == cluster_id)[0]
+        cluster_rois = [int(spectral_df.iloc[idx]['roi_id']) for idx in cluster_indices]
+        
+        # Calculate cluster statistics
+        spectral_cols = [f'Channel_{i+1}_Mean' for i in range(15)]
+        cluster_data = spectral_df.iloc[cluster_indices][spectral_cols]
+        
+        mean_intensity = cluster_data.values.mean()
+        std_intensity = cluster_data.values.std()
+        
+        cluster_info = {
+            'Cluster': cluster_id + 1,
+            'ROI_Count': len(cluster_rois),
+            'ROI_List': sorted(cluster_rois),
+            'Mean_Intensity': mean_intensity,
+            'Std_Intensity': std_intensity
+        }
+        cluster_summary.append(cluster_info)
+        
+        print(f"\n🎯 CLUSTER {cluster_id + 1}:")
+        print(f"   📍 ROI Count: {len(cluster_rois)}")
+        print(f"   🔢 ROI IDs: {sorted(cluster_rois)}")
+        print(f"   📊 Mean Intensity: {mean_intensity:.2f} ± {std_intensity:.2f}")
+        
+        # Show first few ROIs with their coordinates
+        print(f"   📍 Sample ROI Locations:")
+        for i, roi_idx in enumerate(cluster_indices[:3]):  # Show first 3
+            roi_row = spectral_df.iloc[roi_idx]
+            roi_id = int(roi_row['roi_id'])
+            if 'centroid_col' in roi_row and 'centroid_row' in roi_row:
+                x, y = roi_row['centroid_col'], roi_row['centroid_row']
+                print(f"      ROI {roi_id}: ({x:.0f}, {y:.0f})")
+    
+    # Save cluster summary to CSV
+    summary_df = pd.DataFrame([{
+        'Cluster_ID': info['Cluster'],
+        'ROI_Count': info['ROI_Count'], 
+        'ROI_IDs': ', '.join(map(str, info['ROI_List'])),
+        'Mean_Intensity': info['Mean_Intensity'],
+        'Std_Intensity': info['Std_Intensity']
+    } for info in cluster_summary])
+    
+    summary_df.to_csv('cluster_assignments_summary.csv', index=False)
+    print(f"\n💾 Saved cluster assignments to 'cluster_assignments_summary.csv'")
+    
+    return cluster_summary
+
+
 def visualize_roi_mask_enhanced(segmentation_input, filtered_labeled_mask, spectral_df, num_filtered_labels):
     """
     Create enhanced ROI visualizations with multiple approaches for better identification.
@@ -1205,6 +1441,15 @@ if num_filtered_labels > 0:
     # Create detailed reference materials
     create_detailed_legend(spectral_df, num_filtered_labels, statistical_results)
     create_interactive_roi_map(filtered_labeled_mask, spectral_df, num_filtered_labels)
+    
+    # Create cluster overlay visualization
+    if statistical_results and 'hierarchical_labels' in statistical_results:
+        create_cluster_overlay_visualization(spectral_df, filtered_labeled_mask, 
+                                           segmentation_input, statistical_results)
+        create_cluster_summary_table(spectral_df, statistical_results['hierarchical_labels'], 
+                                    statistical_results['num_clusters'])
+    else:
+        print("⚠️ No cluster labels available for overlay visualization")
 else:
     print("\nNo manual ROIs to visualize.")
     statistical_results = {}
@@ -1385,11 +1630,11 @@ if not spectral_df.empty:
                 plt.tight_layout()
                 
                 # Save individual ROI spectral signature
-                filename = f'roi_{roi_id}_spectral_signature.png'
+                filename = f'roi_{int(roi_id)}_spectral_signature.png'
                 plt.savefig(filename, dpi=150, bbox_inches='tight')
                 plt.close(fig_roi)
                 
-                print(f"  ✓ Saved spectral signature for ROI {roi_id} to {filename}")
+                print(f"  ✓ Saved spectral signature for ROI {int(roi_id)} to {filename}")
             
             print(f"\nSuccessfully generated {len(spectral_df)} individual ROI spectral signature histograms!")
         
@@ -1511,3 +1756,238 @@ else:
 print("\nEnhanced analysis pipeline completed successfully!")
 print("All 53 ROIs should now be properly handled with advanced visualizations.")
 print("="*50)
+
+def create_cluster_overlay_visualization(spectral_df, filtered_labeled_mask, segmentation_input, statistical_results):
+    """
+    Create a comprehensive visualization showing hierarchical clusters overlaid on the original image.
+    """
+    print("\n🎨 Creating cluster overlay visualization...")
+    
+    if 'hierarchical_labels' not in statistical_results:
+        print("❌ No hierarchical cluster labels found in statistical results")
+        return
+    
+    # Get cluster information
+    cluster_labels = statistical_results['hierarchical_labels']
+    num_clusters = len(np.unique(cluster_labels))
+    
+    # Create cluster colormap
+    cluster_colors = plt.cm.Set1(np.linspace(0, 1, num_clusters))
+    
+    # Reference image (use channel with good contrast)
+    ref_channel = 10  # Middle channel often has good contrast
+    ref_img = segmentation_input[ref_channel]
+    
+    # Create figure with multiple views
+    fig = plt.figure(figsize=(20, 12))
+    gs = fig.add_gridspec(2, 3, hspace=0.3, wspace=0.3)
+    
+    # 1. Original reference image
+    ax1 = fig.add_subplot(gs[0, 0])
+    im1 = ax1.imshow(ref_img, cmap='gray')
+    ax1.set_title(f'Original Image\n(Channel {ref_channel + 1})', fontsize=12, fontweight='bold')
+    ax1.axis('off')
+    plt.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04)
+    
+    # 2. All ROIs on original image
+    ax2 = fig.add_subplot(gs[0, 1])
+    ax2.imshow(ref_img, cmap='gray', alpha=0.7)
+    
+    # Overlay all ROIs with their individual colors
+    roi_overlay = np.zeros_like(filtered_labeled_mask, dtype=float)
+    
+    for idx, (_, roi_row) in enumerate(spectral_df.iterrows()):
+        roi_id = int(roi_row['roi_id'])
+        roi_overlay[filtered_labeled_mask == roi_id] = idx + 1
+    
+    im2 = ax2.imshow(roi_overlay, cmap=plt.cm.get_cmap('tab20', len(spectral_df)), 
+                     alpha=0.6, vmin=0, vmax=len(spectral_df))
+    ax2.set_title(f'All ROIs Overlay\n({len(spectral_df)} ROIs)', fontsize=12, fontweight='bold')
+    ax2.axis('off')
+    
+    # 3. Cluster overlay on original image
+    ax3 = fig.add_subplot(gs[0, 2])
+    ax3.imshow(ref_img, cmap='gray', alpha=0.7)
+    
+    # Create cluster overlay mask
+    cluster_overlay = np.zeros_like(filtered_labeled_mask, dtype=float)
+    
+    for idx, (_, roi_row) in enumerate(spectral_df.iterrows()):
+        roi_id = int(roi_row['roi_id'])
+        cluster_id = cluster_labels[idx]
+        cluster_overlay[filtered_labeled_mask == roi_id] = cluster_id + 1
+    
+    im3 = ax3.imshow(cluster_overlay, cmap=plt.cm.Set1, alpha=0.8, 
+                     vmin=0, vmax=num_clusters, interpolation='nearest')
+    ax3.set_title(f'Hierarchical Clusters\n({num_clusters} clusters)', fontsize=12, fontweight='bold')
+    ax3.axis('off')
+    
+    # Add cluster legend
+    from matplotlib.patches import Patch
+    legend_elements = [Patch(facecolor=cluster_colors[i], label=f'Cluster {i+1}') 
+                      for i in range(num_clusters)]
+    ax3.legend(handles=legend_elements, loc='upper left', bbox_to_anchor=(1.05, 1))
+    
+    # 4. Cluster boundaries only
+    ax4 = fig.add_subplot(gs[1, 0])
+    ax4.imshow(ref_img, cmap='gray')
+    
+    # Draw cluster boundaries
+    from skimage.measure import find_contours
+    
+    for cluster_id in range(num_clusters):
+        cluster_mask = cluster_overlay == (cluster_id + 1)
+        if np.any(cluster_mask):
+            # Find contours for this cluster
+            contours = find_contours(cluster_mask.astype(float), 0.5)
+            for contour in contours:
+                ax4.plot(contour[:, 1], contour[:, 0], linewidth=3, 
+                        color=cluster_colors[cluster_id], alpha=0.9)
+    
+    ax4.set_title('Cluster Boundaries Only', fontsize=12, fontweight='bold')
+    ax4.axis('off')
+    
+    # 5. Cluster statistics text
+    ax5 = fig.add_subplot(gs[1, 1:])
+    ax5.axis('off')
+    
+    # Add cluster statistics
+    stats_text = "CLUSTER ASSIGNMENTS:\n\n"
+    for cluster_id in range(num_clusters):
+        cluster_roi_indices = np.where(cluster_labels == cluster_id)[0]
+        cluster_rois = [int(spectral_df.iloc[idx]['roi_id']) for idx in cluster_roi_indices]
+        
+        # Calculate cluster statistics
+        spectral_cols = [f'Channel_{i+1}_Mean' for i in range(15)]
+        cluster_data = spectral_df.iloc[cluster_roi_indices][spectral_cols]
+        mean_intensity = cluster_data.values.mean()
+        
+        stats_text += f"Cluster {cluster_id + 1}: {len(cluster_rois)} ROIs\n"
+        stats_text += f"  ROIs: {sorted(cluster_rois)}\n"
+        stats_text += f"  Mean Intensity: {mean_intensity:.2f}\n\n"
+    
+    ax5.text(0.1, 0.9, stats_text, transform=ax5.transAxes, fontsize=10,
+             verticalalignment='top', fontfamily='monospace',
+             bbox=dict(boxstyle='round,pad=0.5', facecolor='lightblue', alpha=0.8))
+    
+    # Add overall title
+    fig.suptitle('Hierarchical Clustering Spatial Analysis\n' + 
+                f'53 ROIs grouped into {num_clusters} clusters based on spectral similarity',
+                fontsize=16, fontweight='bold')
+    
+    plt.savefig('cluster_overlay_comprehensive.png', dpi=150, bbox_inches='tight')
+    plt.close()
+    
+    print("✅ Saved cluster overlay visualization to 'cluster_overlay_comprehensive.png'")
+    
+    # Create individual cluster visualizations
+    create_individual_cluster_views(spectral_df, filtered_labeled_mask, segmentation_input, 
+                                   cluster_labels, num_clusters, ref_img)
+
+def create_individual_cluster_views(spectral_df, filtered_labeled_mask, segmentation_input, 
+                                   cluster_labels, num_clusters, ref_img):
+    """Create separate visualization for each cluster."""
+    
+    cluster_colors = plt.cm.Set1(np.linspace(0, 1, num_clusters))
+    
+    # Create individual cluster panels
+    fig, axes = plt.subplots(1, num_clusters, figsize=(5*num_clusters, 5))
+    if num_clusters == 1:
+        axes = [axes]
+    
+    for cluster_id in range(num_clusters):
+        ax = axes[cluster_id]
+        
+        # Create cluster overlay mask
+        cluster_overlay = np.zeros_like(filtered_labeled_mask, dtype=float)
+        cluster_roi_indices = np.where(cluster_labels == cluster_id)[0]
+        
+        for roi_idx in cluster_roi_indices:
+            roi_row = spectral_df.iloc[roi_idx]
+            roi_id = int(roi_row['roi_id'])
+            cluster_overlay[filtered_labeled_mask == roi_id] = 1
+        
+        # Show reference image with cluster overlay
+        ax.imshow(ref_img, cmap='gray', alpha=0.7)
+        ax.imshow(cluster_overlay, cmap='Reds', alpha=0.8, vmin=0, vmax=1)
+        
+        # Get ROIs in this cluster
+        cluster_rois = [int(spectral_df.iloc[idx]['roi_id']) for idx in cluster_roi_indices]
+        
+        ax.set_title(f'Cluster {cluster_id + 1}\n{len(cluster_rois)} ROIs\n{cluster_rois[:5]}' + 
+                    (f'\n+ {len(cluster_rois)-5} more' if len(cluster_rois) > 5 else ''),
+                    fontsize=10, fontweight='bold')
+        ax.axis('off')
+        
+        # Add ROI numbers for this cluster
+        for roi_idx in cluster_roi_indices:
+            roi_row = spectral_df.iloc[roi_idx]
+            roi_id = int(roi_row['roi_id'])
+            if 'centroid_col' in roi_row and 'centroid_row' in roi_row:
+                x, y = roi_row['centroid_col'], roi_row['centroid_row']
+                ax.text(x, y, str(roi_id), ha='center', va='center', 
+                       fontsize=8, fontweight='bold', color='white',
+                       bbox=dict(boxstyle='circle,pad=0.2', facecolor='black', alpha=0.8))
+    
+    fig.suptitle('Individual Clusters with ROI Numbers', fontsize=14, fontweight='bold')
+    fig.tight_layout()
+    fig.savefig('individual_clusters_detailed.png', dpi=150, bbox_inches='tight')
+    plt.close()
+    
+    print("✅ Saved individual clusters to 'individual_clusters_detailed.png'")
+
+def create_cluster_summary_table(spectral_df, cluster_labels, num_clusters):
+    """Create a detailed summary table of cluster assignments."""
+    
+    print("\n📊 DETAILED CLUSTER ASSIGNMENTS:")
+    print("="*60)
+    
+    cluster_summary = []
+    
+    for cluster_id in range(num_clusters):
+        cluster_indices = np.where(cluster_labels == cluster_id)[0]
+        cluster_rois = [int(spectral_df.iloc[idx]['roi_id']) for idx in cluster_indices]
+        
+        # Calculate cluster statistics
+        spectral_cols = [f'Channel_{i+1}_Mean' for i in range(15)]
+        cluster_data = spectral_df.iloc[cluster_indices][spectral_cols]
+        
+        mean_intensity = cluster_data.values.mean()
+        std_intensity = cluster_data.values.std()
+        
+        cluster_info = {
+            'Cluster': cluster_id + 1,
+            'ROI_Count': len(cluster_rois),
+            'ROI_List': sorted(cluster_rois),
+            'Mean_Intensity': mean_intensity,
+            'Std_Intensity': std_intensity
+        }
+        cluster_summary.append(cluster_info)
+        
+        print(f"\n🎯 CLUSTER {cluster_id + 1}:")
+        print(f"   📍 ROI Count: {len(cluster_rois)}")
+        print(f"   🔢 ROI IDs: {sorted(cluster_rois)}")
+        print(f"   📊 Mean Intensity: {mean_intensity:.2f} ± {std_intensity:.2f}")
+        
+        # Show first few ROIs with their coordinates
+        print(f"   📍 Sample ROI Locations:")
+        for i, roi_idx in enumerate(cluster_indices[:3]):  # Show first 3
+            roi_row = spectral_df.iloc[roi_idx]
+            roi_id = int(roi_row['roi_id'])
+            if 'centroid_col' in roi_row and 'centroid_row' in roi_row:
+                x, y = roi_row['centroid_col'], roi_row['centroid_row']
+                print(f"      ROI {roi_id}: ({x:.0f}, {y:.0f})")
+    
+    # Save cluster summary to CSV
+    summary_df = pd.DataFrame([{
+        'Cluster_ID': info['Cluster'],
+        'ROI_Count': info['ROI_Count'], 
+        'ROI_IDs': ', '.join(map(str, info['ROI_List'])),
+        'Mean_Intensity': info['Mean_Intensity'],
+        'Std_Intensity': info['Std_Intensity']
+    } for info in cluster_summary])
+    
+    summary_df.to_csv('cluster_assignments_summary.csv', index=False)
+    print(f"\n💾 Saved cluster assignments to 'cluster_assignments_summary.csv'")
+    
+    return cluster_summary
